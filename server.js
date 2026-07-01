@@ -1,8 +1,6 @@
 const express = require('express');
 const http = require('http');
-const httpProxy = require('http-proxy-middleware');
 const cors = require('cors');
-const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -24,7 +22,6 @@ app.get('/stream', (req, res) => {
 
     try {
         const urlObj = new URL(fullUrl);
-        const targetHost = urlObj.host;
         const targetPath = urlObj.pathname + urlObj.search;
 
         const options = {
@@ -119,7 +116,6 @@ app.get('/direct', (req, res) => {
 
     try {
         const urlObj = new URL(fullUrl);
-        const targetHost = urlObj.host;
         const targetPath = urlObj.pathname + urlObj.search;
 
         const options = {
@@ -162,38 +158,8 @@ app.get('/direct', (req, res) => {
     }
 });
 
-app.get('/player', (req, res) => {
-    res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Video Player</title>
-            <style>
-                * { margin: 0; padding: 0; box-sizing: border-box; }
-                body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
-                video { max-width: 100%; max-height: 100vh; }
-            </style>
-        </head>
-        <body>
-            <video id="videoPlayer" controls autoplay playsinline></video>
-            <script>
-                const urlParams = new URLSearchParams(window.location.search);
-                const videoUrl = urlParams.get('url');
-                if (videoUrl) {
-                    const video = document.getElementById('videoPlayer');
-                    video.src = '/direct?url=' + encodeURIComponent(videoUrl);
-                } else {
-                    document.body.innerHTML = '<div style="color:white;font-family:sans-serif;">No video URL provided</div>';
-                }
-            </script>
-        </body>
-        </html>
-    `);
-});
-
 app.get('/', (req, res) => {
+    const videoUrl = req.query.url || 'http://192.168.0.104:8080/watch?id=3032129946669007320';
     res.send(`
         <!DOCTYPE html>
         <html>
@@ -208,19 +174,10 @@ app.get('/', (req, res) => {
             </style>
         </head>
         <body>
-            <video id="videoPlayer" controls autoplay playsinline></video>
-            <script>
-                const urlParams = new URLSearchParams(window.location.search);
-                const videoUrl = urlParams.get('url');
-                if (videoUrl) {
-                    const video = document.getElementById('videoPlayer');
-                    video.src = '/direct?url=' + encodeURIComponent(videoUrl);
-                } else {
-                    const defaultUrl = 'http://192.168.0.104:8080/watch?id=3032129946669007320';
-                    const video = document.getElementById('videoPlayer');
-                    video.src = '/direct?url=' + encodeURIComponent(defaultUrl);
-                }
-            </script>
+            <video controls autoplay playsinline>
+                <source src="/direct?url=${encodeURIComponent(videoUrl)}" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
         </body>
         </html>
     `);
