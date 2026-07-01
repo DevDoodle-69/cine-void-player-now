@@ -1,0 +1,21 @@
+{
+  "name": "express-video-stream-proxy",
+  "version": "1.0.0",
+  "description": "A video streaming proxy to safely tunnel local video streams to external clients with full player controls.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "express",
+    "video",
+    "stream",
+    "proxy",
+    "html5-video"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
