@@ -1,50 +1,191 @@
 const express = require('express');
-const axios = require('axios');
+const http = require('http');
+const httpProxy = require('http-proxy-middleware');
 const cors = require('cors');
+const path = require('path');
+
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-// Enable CORS for all routes
 app.use(cors());
+app.use(express.json());
 
-// Serve a simple HTML player for the root path
-app.get('/', (req, res) => {
+app.get('/stream', (req, res) => {
+    const targetUrl = req.query.url;
+    
+    if (!targetUrl) {
+        return res.status(400).send('URL parameter is required');
+    }
+
+    let fullUrl = targetUrl;
+    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+        fullUrl = 'http://' + targetUrl;
+    }
+
+    try {
+        const urlObj = new URL(fullUrl);
+        const targetHost = urlObj.host;
+        const targetPath = urlObj.pathname + urlObj.search;
+
+        const options = {
+            hostname: urlObj.hostname,
+            port: urlObj.port || 80,
+            path: targetPath,
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': '*/*',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive'
+            }
+        };
+
+        const proxy = http.request(options, (proxyRes) => {
+            const contentType = proxyRes.headers['content-type'] || '';
+            
+            if (contentType.includes('video') || contentType.includes('application/octet-stream')) {
+                res.writeHead(proxyRes.statusCode, {
+                    'Content-Type': contentType,
+                    'Content-Length': proxyRes.headers['content-length'],
+                    'Accept-Ranges': 'bytes',
+                    'Content-Range': proxyRes.headers['content-range'],
+                    'Cache-Control': 'no-cache'
+                });
+                proxyRes.pipe(res);
+            } else {
+                let data = '';
+                proxyRes.on('data', chunk => data += chunk);
+                proxyRes.on('end', () => {
+                    try {
+                        const jsonData = JSON.parse(data);
+                        const videoUrl = jsonData.url || jsonData.stream_url || jsonData.video_url || jsonData.play_url;
+                        
+                        if (videoUrl) {
+                            res.send(`
+                                <!DOCTYPE html>
+                                <html>
+                                <head>
+                                    <meta charset="UTF-8">
+                                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                    <title>Video Stream</title>
+                                    <style>
+                                        * { margin: 0; padding: 0; box-sizing: border-box; }
+                                        body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+                                        video { max-width: 100%; max-height: 100vh; }
+                                    </style>
+                                </head>
+                                <body>
+                                    <video controls autoplay playsinline>
+                                        <source src="${videoUrl}" type="video/mp4">
+                                        Your browser does not support the video tag.
+                                    </video>
+                                </body>
+                                </html>
+                            `);
+                        } else {
+                            res.status(404).send('Video URL not found in response');
+                        }
+                    } catch (e) {
+                        res.status(500).send('Error processing video data');
+                    }
+                });
+            }
+        });
+
+        proxy.on('error', (err) => {
+            console.error('Proxy error:', err);
+            res.status(500).send('Error connecting to video source');
+        });
+
+        proxy.end();
+
+    } catch (error) {
+        console.error('URL parsing error:', error);
+        res.status(400).send('Invalid URL format');
+    }
+});
+
+app.get('/direct', (req, res) => {
+    const targetUrl = req.query.url;
+    
+    if (!targetUrl) {
+        return res.status(400).send('URL parameter is required');
+    }
+
+    let fullUrl = targetUrl;
+    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+        fullUrl = 'http://' + targetUrl;
+    }
+
+    try {
+        const urlObj = new URL(fullUrl);
+        const targetHost = urlObj.host;
+        const targetPath = urlObj.pathname + urlObj.search;
+
+        const options = {
+            hostname: urlObj.hostname,
+            port: urlObj.port || 80,
+            path: targetPath,
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': '*/*',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive'
+            }
+        };
+
+        const proxy = http.request(options, (proxyRes) => {
+            const contentType = proxyRes.headers['content-type'] || '';
+            
+            res.writeHead(proxyRes.statusCode, {
+                'Content-Type': contentType || 'video/mp4',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                'Accept-Ranges': 'bytes',
+                'Cache-Control': 'no-cache'
+            });
+
+            proxyRes.pipe(res);
+        });
+
+        proxy.on('error', (err) => {
+            console.error('Proxy error:', err);
+            res.status(500).send('Error connecting to video source');
+        });
+
+        proxy.end();
+
+    } catch (error) {
+        console.error('URL parsing error:', error);
+        res.status(400).send('Invalid URL format');
+    }
+});
+
+app.get('/player', (req, res) => {
     res.send(`
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Video Stream</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Video Player</title>
             <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; }
-                body { 
-                    background: #000; 
-                    display: flex; 
-                    justify-content: center; 
-                    align-items: center; 
-                    height: 100vh; 
-                    overflow: hidden;
-                }
-                video {
-                    max-width: 100vw;
-                    max-height: 100vh;
-                    width: auto;
-                    height: auto;
-                }
+                body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+                video { max-width: 100%; max-height: 100vh; }
             </style>
         </head>
         <body>
-            <video id="videoPlayer" controls autoplay></video>
+            <video id="videoPlayer" controls autoplay playsinline></video>
             <script>
-                // Get URL from query parameter
                 const urlParams = new URLSearchParams(window.location.search);
                 const videoUrl = urlParams.get('url');
-                
                 if (videoUrl) {
                     const video = document.getElementById('videoPlayer');
-                    // Use the proxy endpoint
-                    video.src = '/stream?url=' + encodeURIComponent(videoUrl);
+                    video.src = '/direct?url=' + encodeURIComponent(videoUrl);
                 } else {
-                    document.body.innerHTML = '<h1 style="color:white;">Please provide a URL parameter</h1>';
+                    document.body.innerHTML = '<div style="color:white;font-family:sans-serif;">No video URL provided</div>';
                 }
             </script>
         </body>
@@ -52,114 +193,39 @@ app.get('/', (req, res) => {
     `);
 });
 
-// Stream endpoint
-app.get('/stream', async (req, res) => {
-    try {
-        const targetUrl = req.query.url;
-        
-        if (!targetUrl) {
-            return res.status(400).send('URL parameter is required');
-        }
-
-        // Ensure URL has protocol
-        let fullUrl = targetUrl;
-        if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
-            fullUrl = 'http://' + fullUrl;
-        }
-
-        console.log(`Proxying request to: ${fullUrl}`);
-
-        // Make request to the target server
-        const response = await axios({
-            method: 'GET',
-            url: fullUrl,
-            responseType: 'stream',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': '*/*',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Range': req.headers.range || undefined
-            },
-            timeout: 30000,
-            maxRedirects: 5,
-            validateStatus: function (status) {
-                return status >= 200 && status < 400;
-            }
-        });
-
-        // Get the content type
-        const contentType = response.headers['content-type'] || 'video/mp4';
-        
-        // Set response headers for video streaming
-        res.setHeader('Content-Type', contentType);
-        res.setHeader('Accept-Ranges', 'bytes');
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        res.setHeader('Pragma', 'no-cache');
-        res.setHeader('Expires', '0');
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Range, Accept-Encoding');
-
-        // Handle range requests for seeking
-        if (req.headers.range) {
-            const range = req.headers.range;
-            const fileSize = parseInt(response.headers['content-length']) || 0;
-            const parts = range.replace(/bytes=/, "").split("-");
-            const start = parseInt(parts[0], 10);
-            const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-            
-            res.status(206);
-            res.setHeader('Content-Range', `bytes ${start}-${end}/${fileSize}`);
-            res.setHeader('Content-Length', end - start + 1);
-        }
-
-        // Pipe the video stream to the response
-        response.data.pipe(res);
-
-        // Handle errors in the stream
-        response.data.on('error', (error) => {
-            console.error('Stream error:', error);
-            if (!res.headersSent) {
-                res.status(500).send('Stream error');
-            }
-        });
-
-    } catch (error) {
-        console.error('Proxy error:', error.message);
-        
-        if (error.response) {
-            // The request was made and the server responded with a status code
-            console.error('Status:', error.response.status);
-            console.error('Headers:', error.response.headers);
-            res.status(error.response.status).send(`Server responded with status ${error.response.status}`);
-        } else if (error.request) {
-            // The request was made but no response was received
-            console.error('No response received');
-            res.status(504).send(`
-                <h1>Connection Error</h1>
-                <p>Could not connect to the video server at ${targetUrl}</p>
-                <p>Error: ${error.message}</p>
-                <p>Please check if the server is running and accessible.</p>
-            `);
-        } else {
-            // Something happened in setting up the request
-            res.status(500).send(`Error: ${error.message}`);
-        }
-    }
+app.get('/', (req, res) => {
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Video Stream</title>
+            <style>
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+                video { max-width: 100%; max-height: 100vh; }
+            </style>
+        </head>
+        <body>
+            <video id="videoPlayer" controls autoplay playsinline></video>
+            <script>
+                const urlParams = new URLSearchParams(window.location.search);
+                const videoUrl = urlParams.get('url');
+                if (videoUrl) {
+                    const video = document.getElementById('videoPlayer');
+                    video.src = '/direct?url=' + encodeURIComponent(videoUrl);
+                } else {
+                    const defaultUrl = 'http://192.168.0.104:8080/watch?id=3032129946669007320';
+                    const video = document.getElementById('videoPlayer');
+                    video.src = '/direct?url=' + encodeURIComponent(defaultUrl);
+                }
+            </script>
+        </body>
+        </html>
+    `);
 });
 
-// Handle OPTIONS requests for CORS preflight
-app.options('/stream', (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Range, Accept-Encoding');
-    res.sendStatus(200);
-});
-
-// Start the server
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Proxy server running at http://localhost:${PORT}`);
-    console.log(`Usage: http://localhost:${PORT}/?url=192.168.0.104:8080/watch?id=3032129946669007320`);
-    console.log(`Direct stream: http://localhost:${PORT}/stream?url=192.168.0.104:8080/watch?id=3032129946669007320`);
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
 });
